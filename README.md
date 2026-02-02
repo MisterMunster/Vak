@@ -9,6 +9,8 @@ Vak is a Python-based desktop application designed to streamline the processing 
 - **Audio Transcoding**: Automatically converts various audio formats (MP3, M4A) to WAV for compatibility with transcription engines using `pydub` and `ffmpeg`.
 - **Speech Recognition**: Uses the Google Web Speech API (via `speech_recognition`) to transcribe audio to text.
 - **Phonetic Conversion**: Converts transcribed text into IPA phonetics using `eng_to_ipa`.
+- **Sanskrit Transliteration**: Converts IPA phonetics to Sanskrit (Devanagari) script.
+- **IAST Conversion**: Converts Sanskrit Devanagari to International Alphabet of Sanskrit Transliteration (IAST).
 - **User Friendly GUI**: Built with `tkinter`, providing a simple interface to manage configuration and view processing logs.
 
 ## Prerequisites
@@ -88,6 +90,8 @@ Contains the core business logic in the `BatchProcessor` class.
     *   **Convert**: If not already WAV, converts it to WAV.
     *   **Transcribe**: Sends audio to Google Web Speech API for text result.
     *   **IPA**: Converts text result to IPA symbols.
-    *   **Log**: Appends `[Filename, Timestamp, Text, Phonetic]` to the Google Sheet.
+    *   **Sanskrit**: Converts IPA to Devanagari.
+    *   **IAST**: Converts Devanagari to IAST.
+    *   **Log**: Appends `[Filename, Timestamp, Text, Phonetic, Sanskrit, IAST]` to the Google Sheet.
     *   **Move**: Moves the original file on Drive to the `Done Folder ID`.
     *   **Cleanup**: Deletes local temporary files.

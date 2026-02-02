@@ -2,6 +2,7 @@ import os
 import time
 import speech_recognition as sr
 import eng_to_ipa as ipa
+import ipa_map
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -70,7 +71,7 @@ class BatchProcessor:
         wav_path, is_converted = self.convert_to_wav(file_path)
         
         if not wav_path:
-            return "[Conversion Failed - Install FFMPEG?]", "[Error]"
+            return "[Conversion Failed - Install FFMPEG?]", "[Error]", "[Error]", "[Error]"
 
         try:
             with sr.AudioFile(wav_path) as source:
@@ -80,9 +81,13 @@ class BatchProcessor:
         except sr.UnknownValueError:
             text = "[Unintelligible]"
             phonetic = "[N/A]"
+            sanskrit = "[N/A]"
+            iast = "[N/A]"
         except Exception as e:
             text = f"[Error: {str(e)}]"
             phonetic = "[Error]"
+            sanskrit = "[Error]"
+            iast = "[Error]"
         finally:
             if is_converted and os.path.exists(wav_path):
                 try:
@@ -90,7 +95,16 @@ class BatchProcessor:
                 except:
                     pass
         
-        return text, phonetic
+        
+        # Generate Sanskrit and IAST
+        try:
+            sanskrit = ipa_map.ipa_to_sanskrit(phonetic)
+            iast = ipa_map.sanskrit_to_iast(sanskrit)
+        except Exception as e:
+            sanskrit = "[Error]"
+            iast = "[Error]"
+
+        return text, phonetic, sanskrit, iast
 
     def update_sheet(self, sheet_id, data_row):
         """Appends a row to the Google Sheet."""
@@ -155,13 +169,16 @@ class BatchProcessor:
                 local_path = self.download_file(file_id, file_name)
                 
                 # 2. Transcribe & Phonetic
-                name, phonetic = self.transcribe_and_phonetic(local_path)
+                name, phonetic, sanskrit, iast = self.transcribe_and_phonetic(local_path)
                 log_callback(f"  - Detected Name: {name}")
                 log_callback(f"  - Phonetic: {phonetic}")
+                log_callback(f"  - Sanskrit: {sanskrit}")
+                log_callback(f"  - IAST: {iast}")
                 
                 # 3. Update Sheet
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                row = [file_name, timestamp, name, phonetic]
+                # Columns: Filename, Timestamp, Text, Phonetic, Sanskrit, IAST
+                row = [file_name, timestamp, name, phonetic, sanskrit, iast]
                 self.update_sheet(sheet_id, row)
                 log_callback("  - Sheet updated.")
 

@@ -1,6 +1,6 @@
 # Vak - Audio Batch Processor
 
-Vak is a Python-based desktop application designed to streamline the processing of audio files stored in Google Drive. It automatically downloads audio files, transcribes them to text, generates their International Phonetic Alphabet (IPA) representation, logs the results to a Google Sheet, and organizes the processed files into a destination folder.
+Vak is a Python-based desktop application designed to streamline the processing of audio files to Sandskrit stored in Google Drive. It automatically downloads audio files, transcribes them to text, generates their International Phonetic Alphabet (IPA) representation, logs the results to a Google Sheet, and organizes the processed files into a destination folder.
 
 ## Features
 

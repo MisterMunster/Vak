@@ -58,6 +58,7 @@ To use Vak, you need a **Google Service Account** with permissions to access you
     *   **Input Drive Folder ID**: The ID from the URL of your input folder (e.g., `1A2b3C...`).
     *   **Done Drive Folder ID**: The ID from the URL of your destination folder.
     *   **Google Sheet ID**: The ID from the URL of your Google Sheet.
+    *   **Note**: The application remembers the last 10 entries for these ID fields.
 
 3.  Click **Batch Process**. The application will:
     *   Scan the input folder for audio files.

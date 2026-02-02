@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+service_account.json
+*.DS_Store
+
+Lib/
+Scripts/
+Include/
+pyvenv.cfg

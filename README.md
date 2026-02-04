@@ -96,3 +96,14 @@ Contains the core business logic in the `BatchProcessor` class.
     *   **Log**: Appends `[Filename, Timestamp, Text, Phonetic, Sanskrit, IAST]` to the Google Sheet.
     *   **Move**: Moves the original file on Drive to the `Done Folder ID`.
     *   **Cleanup**: Deletes local temporary files.
+
+## Notes
+
+### Strict IAST Charset
+The application enforces a strict IAST character set for the output. The characters allowed are: 
+`a ā i ī u ū ṛ ṝ ḷ l̤ e ai o au k kh g gh ṅ c ch j jh ñ ṭ ṭh ḍ ḍh ṇ t th d dh n p ph b bh m y r l v ś ṣ s h ḻ ṁ m̐ ḥ ẖ ḫ`
+
+**Separated Output**:
+The final column in the Google Sheet provides the IAST string separated by commas. This separation respects Sanskrit phonemes (digraphs). 
+*   Example: "bh" is treated as a single unit, so "bhakti" becomes `bh,a,k,t,i`.
+*   Example: "ai" is treated as a single unit, so "Kailash" becomes `k,ai,l,ā,ś`.

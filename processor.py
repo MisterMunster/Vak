@@ -71,7 +71,7 @@ class BatchProcessor:
         wav_path, is_converted = self.convert_to_wav(file_path)
         
         if not wav_path:
-            return "[Conversion Failed - Install FFMPEG?]", "[Error]", "[Error]", "[Error]"
+            return "[Conversion Failed - Install FFMPEG?]", "[Error]", "[Error]", "[Error]", "[Error]"
 
         try:
             with sr.AudioFile(wav_path) as source:
@@ -83,11 +83,13 @@ class BatchProcessor:
             phonetic = "[N/A]"
             sanskrit = "[N/A]"
             iast = "[N/A]"
+            iast_sep = "[N/A]"
         except Exception as e:
             text = f"[Error: {str(e)}]"
             phonetic = "[Error]"
             sanskrit = "[Error]"
             iast = "[Error]"
+            iast_sep = "[Error]"
         finally:
             if is_converted and os.path.exists(wav_path):
                 try:
@@ -95,16 +97,28 @@ class BatchProcessor:
                 except:
                     pass
         
-        
         # Generate Sanskrit and IAST
-        try:
-            sanskrit = ipa_map.ipa_to_sanskrit(phonetic)
-            iast = ipa_map.sanskrit_to_iast(sanskrit)
-        except Exception as e:
-            sanskrit = "[Error]"
-            iast = "[Error]"
+        # Only proceed if not already errored out (though logic above handles 'N/A' strings safely)
+        if hasattr(ipa_map, 'ipa_to_sanskrit'): # Basic check
+             try:
+                # If Error placeholders are present, simple helper will return them as is presumably 
+                # or logic below handles strings finely.
+                if text.startswith("["): # Simple check for error state
+                     pass 
+                else:
+                    sanskrit = ipa_map.ipa_to_sanskrit(phonetic)
+                    iast = ipa_map.sanskrit_to_iast(sanskrit)
+                    iast_sep = ipa_map.get_iast_separated(iast)
+             except Exception as e:
+                sanskrit = "[Error]"
+                iast = "[Error]"
+                iast_sep = "[Error]"
+        
+        # Consistency check: ensure iast_sep is set even if error branch taken
+        if 'iast_sep' not in locals():
+             iast_sep = "[Error]"
 
-        return text, phonetic, sanskrit, iast
+        return text, phonetic, sanskrit, iast, iast_sep
 
     def update_sheet(self, sheet_id, data_row):
         """Appends a row to the Google Sheet."""
@@ -169,7 +183,7 @@ class BatchProcessor:
                 local_path = self.download_file(file_id, file_name)
                 
                 # 2. Transcribe & Phonetic
-                name, phonetic, sanskrit, iast = self.transcribe_and_phonetic(local_path)
+                name, phonetic, sanskrit, iast, iast_sep = self.transcribe_and_phonetic(local_path)
                 log_callback(f"  - Detected Name: {name}")
                 log_callback(f"  - Phonetic: {phonetic}")
                 log_callback(f"  - Sanskrit: {sanskrit}")
@@ -177,8 +191,8 @@ class BatchProcessor:
                 
                 # 3. Update Sheet
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                # Columns: Filename, Timestamp, Text, Phonetic, Sanskrit, IAST
-                row = [file_name, timestamp, name, phonetic, sanskrit, iast]
+                # Columns: Filename, Timestamp, Text, Phonetic, Sanskrit, IAST, IAST_Separated
+                row = [file_name, timestamp, name, phonetic, sanskrit, iast, iast_sep]
                 self.update_sheet(sheet_id, row)
                 log_callback("  - Sheet updated.")
 

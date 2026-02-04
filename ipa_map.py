@@ -1,165 +1,202 @@
 # ipa_map.py
 
-# IPA to Sanskrit (Devanagari) Mapping
-# This is a simplified mapping based on common English IPA (eng_to_ipa style) to Sanskrit approximating sounds.
+# Refined IPA to Sanskrit (Devanagari) Mapping
+# Designed to produce more phonetically plausible Sanskrit names from English IPA.
+
 IPA_TO_SANSKRIT = {
+    # Consonants - Mapping to Virama forms to allow easier vowel joining
     'b': 'ब्', 'd': 'ड्', 'f': 'फ्', 'g': 'ग्', 'h': 'ह्', 'j': 'य्', 'k': 'क्', 'l': 'ल्',
     'm': 'म्', 'n': 'न्', 'p': 'प्', 'r': 'र्', 's': 'स्', 't': 'ट्', 'v': 'व्', 'w': 'व्',
     'z': 'ज्', 'ʒ': 'श्', 'dʒ': 'ज्', 'tʃ': 'च्', 'θ': 'थ्', 'ð': 'द्', 'ʃ': 'श्', 'ŋ': 'ङ्',
-    'ə': 'अ', 'i': 'इ', 'ɪ': 'इ', 'e': 'ए', 'æ': 'ऐ', 'a': 'आ', 'ɑ': 'आ', 'ɒ': 'ओ', 'ɔ': 'औ',
-    'u': 'उ', 'ʊ': 'उ', 'ʌ': 'अ', 'o': 'ओ', 'aɪ': 'ऐ', 'aʊ': 'औ', 'ɔɪ': 'ओइ', 'eə': 'एअ',
-    'ɪə': 'इअ', 'ʊə': 'उअ', 'ju': 'यु', 'ɔː': 'औ', 'ɑː': 'आ', 'iː': 'ई', 'uː': 'ऊ', '3': 'अ',
-    'ɛ': 'ए', 'ɡ': 'ग्', 'ɹ': 'र्', '?': '', 
-    # Add more as needed
+    'ɡ': 'ग्', 'ɹ': 'र्',
+    
+    # Vowels
+    'ə': 'अ', 
+    'i': 'इ', 'ɪ': 'इ', 
+    'e': 'ए', 'ɛ': 'ए',
+    'æ': 'अ', # 'cat' -> mapped to 'a' rather than 'ai' for better name approx (e.g. 'Ram')
+    'a': 'आ', 'ɑ': 'आ', 
+    'ɒ': 'ओ', 'ɔ': 'औ', 'ɔː': 'औ',
+    'u': 'उ', 'ʊ': 'उ', 
+    'ʌ': 'अ', 
+    'o': 'ओ', 'oʊ': 'ओ', 'əʊ': 'ओ',
+    
+    # Diphthongs
+    'aɪ': 'ऐ', 'aʊ': 'औ', 'ɔɪ': 'ओइ', 'eə': 'एअ',
+    'ɪə': 'इअ', 'ʊə': 'उअ', 'ju': 'यु', 
+    'iː': 'ई', 'uː': 'ऊ', '3': 'अ', 'ɑː': 'आ'
 }
 
-# Sanskrit (Devanagari) to IAST Mapping
-SANSKRIT_TO_IAST = {
-    'अ': 'a', 'आ': 'ā', 'इ': 'i', 'ई': 'ī', 'उ': 'u', 'ऊ': 'ū', 'ऋ': 'ṛ', 'ॠ': 'ṝ',
-    'ऌ': 'ḷ', 'ॡ': 'ḹ', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'अं': 'ṃ', 'अः': 'ḥ',
-    'क': 'ka', 'ख': 'kha', 'ग': 'ga', 'घ': 'gha', 'ङ': 'ṅa',
-    'च': 'ca', 'छ': 'cha', ' ज': 'ja', 'झ': 'jha', 'ञ': 'ña',
-    'ट': 'ṭa', 'ठ': 'ṭha', 'ड': 'ḍa', 'ढ': 'ḍha', 'ण': 'ṇa',
-    'त': 'ta', 'थ': 'tha', 'द': 'da', 'ध': 'dha', 'न': 'na',
-    'प': 'pa', 'फ': 'pha', 'ब': 'ba', 'भ': 'bha', 'म': 'ma',
-    'य': 'ya', 'र': 'ra', 'ल': 'la', 'व': 'va',
-    'श': 'śa', 'ष': 'ṣa', 'स': 'sa', 'ह': 'ha',
-    '्': '', # Virama suppresses the inherent vowel
-    'ा': 'ā', 'ि': 'i', 'ी': 'ī', 'ु': 'u', 'ू': 'ū', 'ृ': 'ṛ', 'ॄ': 'ṝ',
-    'ॢ': 'ḷ', 'ॣ': 'ḹ', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'ṃ', 'ः': 'ḥ',
-    
-    # Consonants with Virama (halanta) mapping to clean consonants without 'a'
-    'क्': 'k', 'ख्': 'kh', 'ग्': 'g', 'घ': 'gh', 'ङ्': 'ṅ',
-    'च्': 'c', 'छ': 'ch', 'ज्': 'j', 'झ्': 'jh', 'ञ्': 'ñ',
-    'ट्': 'ṭ', 'ठ्': 'ṭh', 'ड्': 'ḍ', 'ढ्': 'ḍh', 'ण्': 'ṇ',
-    'त्': 't', 'थ्': 'th', 'द्': 'd', 'ध्': 'dh', 'न्': 'n',
-    'प्': 'p', 'फ्': 'ph', 'ब्': 'b', 'भ्': 'bh', 'म्': 'm',
-    'य्': 'y', 'र्': 'r', 'ल्': 'l', 'व्': 'v',
-    'श्': 'ś', 'ष्': 'ṣ', 'स्': 's', 'ह्': 'h'
+# Devanagari Logic Sets
+CONSONANTS = {
+    'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ṅ',
+    'च': 'c', 'छ': 'ch', 'ज': 'j', 'झ': 'jh', 'ञ': 'ñ',
+    'ट': 'ṭ', 'ठ': 'ṭh', 'ड': 'ḍ', 'ढ': 'ḍh', 'ण': 'ṇ',
+    'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+    'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v',
+    'श': 'ś', 'ष': 'ṣ', 'स': 's', 'ह': 'h',
+    'ळ': 'ḷ', 'क्ष': 'kṣ', 'ज्ञ': 'jñ'
 }
+
+MATRAS = {
+    'ा': 'ā', 'ि': 'i', 'ी': 'ī', 'ु': 'u', 'ू': 'ū',
+    'ृ': 'ṛ', 'ॄ': 'ṝ', 'ॢ': 'ḷ', 'ॣ': 'ḹ',
+    'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au',
+    'ं': 'ṃ', 'ः': 'ḥ', 'ँ': 'm̐'
+}
+
+INDEPENDENT_VOWELS = {
+    'अ': 'a', 'आ': 'ā', 'इ': 'i', 'ई': 'ī', 'उ': 'u', 'ऊ': 'ū',
+    'ऋ': 'ṛ', 'ॠ': 'ṝ', 'ऌ': 'ḷ', 'ॡ': 'ḹ',
+    'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au',
+}
+
+VIRAMA = '्'
 
 def ipa_to_sanskrit(ipa_text):
     """
-    Converts/Transliterates English IPA symbols to Sanskrit Devanagari.
-    This is a rough approximation as English phonemes don't map 1:1 to Sanskrit.
+    Converts English IPA to Sanskrit Devanagari using a greedy match
+    and post-process merging of Halanta+Vowel -> Matra.
     """
-    result = ""
+    if not ipa_text:
+        return ""
+
+    # 1. Greedy Tokenization
+    tokens = []
     i = 0
     n = len(ipa_text)
     
-    # Sort keys by length descending to match longest sequences first
+    # Sort keys by length to match longest first
     sorted_keys = sorted(IPA_TO_SANSKRIT.keys(), key=len, reverse=True)
     
     while i < n:
         match_found = False
         for key in sorted_keys:
             if ipa_text[i:].startswith(key):
-                result += IPA_TO_SANSKRIT[key]
-                # Check for consonant-vowel combinations to handle inherent 'a' or matras
-                # For this simple version, we stick to the direct mapping.
-                # In Devanagari, consonants in the map have Virama (e.g., 'k' -> 'क्')
-                # But vowels (e.g. 'ə' -> 'अ') are independent vowels.
-                # A proper transliterator would combine 'k' + 'ə' -> 'क'.
-                # Let's try a logic fix purely for basic readability:
-                # If we just added a vowel and previous was a halanta consonant, merge them?
-                # For now, let's keep it simple: string replacement.
+                tokens.append(IPA_TO_SANSKRIT[key])
                 i += len(key)
                 match_found = True
                 break
-        
         if not match_found:
-            # Keep unknown characters as is or skip
-            result += ipa_text[i]
+            # Skip unknown or keep as is? Let's keep as is to be safe
+            tokens.append(ipa_text[i])
             i += 1
             
-    # Post-processing to clean up:
-    # This is a very naive implementation. 
-    # e.g., 'क्' + 'अ' should become 'क'
-    # 'क्' + 'आ' should become 'का'
-    
-    # We will do a second pass to fix "Halanta + Vowel" -> "Matra/Full Consonant"
-    processed = ""
-    # However, implementing a full sandhi/grammar engine is complex. 
-    # Let's rely on the char-by-char concat for now, or just basic cleanup if user requested "Sanskrit".
-    # Given the previous context was "Transliterate phonetic output", let's assume raw mapping is okay,
-    # but let's try to fix at least the 'a' deletion.
-    
-    # Refined loop for merging:
-    # Let's restart the mapping approach slightly.
-    
-    output = []
-    # Re-run the matching with a buffer
-    i = 0
-    while i < n:
-        best_match = None
-        best_len = 0
-        for key in sorted_keys:
-            if ipa_text[i:].startswith(key):
-                if len(key) > best_len:
-                    best_match = IPA_TO_SANSKRIT[key]
-                    best_len = len(key)
-        
-        if best_match is not None:
-             output.append(best_match)
-             i += best_len
-        else:
-            output.append(ipa_text[i])
-            i += 1
-            
-    # Now join and try to fix Halanta+Vowel
-    # Halanta char is one that ends in '्'
-    # Vowels are 'अ', 'आ', etc.
-    
-    # Map Independent Vowel to Matra (when following a consonant)
+    # 2. Merger Parsing (Halanta + Vowel => Matra)
+    # Map Independent Vowel to Matra
     VOWEL_TO_MATRA = {
-        'अ': '', # 'a' deletes the halanta
+        'अ': '', # 'a' just deletes the halanta
         'आ': 'ा', 'इ': 'ि', 'ई': 'ी', 'उ': 'ु', 'ऊ': 'ू',
         'ए': 'े', 'ऐ': 'ै', 'ओ': 'ो', 'औ': 'ौ',
-        # etc.
     }
     
-    final_str = ""
+    merged_output = ""
     last_was_halanta = False
     
-    for chunk in output:
-        # Check if current chunk is a vowel
-        if last_was_halanta and chunk in VOWEL_TO_MATRA:
-            # Remove the last char (virama '्') from final_str
-            final_str = final_str[:-1] 
-            # Add matra
-            final_str += VOWEL_TO_MATRA[chunk]
-            last_was_halanta = False # Now it's a full syllable
+    for token in tokens:
+        # Check if we can merge
+        if last_was_halanta and token in VOWEL_TO_MATRA:
+            # Pop the halanta (virama) from the end of the current buffer
+            # Assume previous token ended with VIRAMA
+            if merged_output.endswith(VIRAMA):
+                merged_output = merged_output[:-1]
+                
+            merged_output += VOWEL_TO_MATRA[token]
+            last_was_halanta = False # Matra attached, no longer halanta
         else:
-            final_str += chunk
-            if chunk.endswith('्'):
+            merged_output += token
+            # Check state
+            if token.endswith(VIRAMA):
                 last_was_halanta = True
             else:
                 last_was_halanta = False
                 
-    return final_str
+    return merged_output
 
-def sanskrit_to_iast(sanskrit_text):
+def sanskrit_to_iast(text):
     """
-    Converts Sanskrit Devanagari to IAST.
+    Parses Devanagari and outputs IAST with correct inherent vowel handling.
     """
-    # This is simpler, mostly greedy replacement
-    result = ""
+    if not text:
+        return ""
+        
+    iast_output = ""
     i = 0
-    n = len(sanskrit_text)
-    
-    sorted_keys = sorted(SANSKRIT_TO_IAST.keys(), key=len, reverse=True)
+    n = len(text)
     
     while i < n:
-        match_found = False
-        for key in sorted_keys:
-            if sanskrit_text[i:].startswith(key):
-                result += SANSKRIT_TO_IAST[key]
-                i += len(key)
-                match_found = True
-                break
+        char = text[i]
         
-        if not match_found:
-            result += sanskrit_text[i]
+        # 1. Is it a Consonant?
+        if char in CONSONANTS:
+            base = CONSONANTS[char]
+            
+            # Lookahead
+            next_char = text[i+1] if i + 1 < n else None
+            
+            if next_char:
+                if next_char == VIRAMA:
+                    # Explicit suppression of vowel
+                    iast_output += base
+                    i += 2 # Consume Consonant + Virama
+                    
+                elif next_char in MATRAS:
+                    # Matra overrides inherent 'a'
+                    iast_output += base + MATRAS[next_char]
+                    i += 2 # Consume Consonant + Matra
+                    
+                else:
+                    # Followed by another consonant, vowel, or other char
+                    # In Sanskrit, this implies distinct pronounciation
+                    # If followed immediately by independent vowel (rare inside word without gap), 
+                    # standard rule is Consonant has 'a'.
+                    iast_output += base + 'a'
+                    i += 1
+            else:
+                # End of string: implicitly 'a'
+                iast_output += base + 'a'
+                i += 1
+                
+        # 2. Is it an Independent Vowel?
+        elif char in INDEPENDENT_VOWELS:
+            iast_output += INDEPENDENT_VOWELS[char]
             i += 1
             
-    return result
+        # 3. Is it a stray Matra or modifier? (Should handle punctuation/spaces)
+        elif char in MATRAS:
+             # Should check previous logic, but if we land here, just append mapped value
+             iast_output += MATRAS[char]
+             i += 1
+             
+        # 4. Fallback
+        else:
+            # Map other symbols like anusvara if in dict, else keep
+            # We put Anusvara in MATRAS for convenience but might appear standalone?
+            # Actually Anusvara usually follows vowel - treated as matra.
+            iast_output += char
+            i += 1
+
+    return iast_output
+
+def get_iast_separated(iast_text):
+    """
+    Returns the IAST text with each character separated by a comma.
+    Example: "rāma" -> "r,ā,m,a"
+    """
+    if not iast_text:
+        return ""
+    # We want to separate logical characters, not just python string chars?
+    # Actually IAST uses combining marks sometimes, but SANSKRIT_TO_IAST uses precomposed chars mostly (ā, ī).
+    # Standard python iteration yields unicode codepoints. 
+    # Let's trust that python handles unicode chars (like 'ā') as length 1 string.
+    # If using combining diacritics, we might split them. 
+    # But our map uses precomposed (e.g. \u0101 for ā), so list(str) is safe.
+    
+    # However, 'kh', 'gh', 'ai', 'au' are digraphs in IAST representation of single sounds?
+    # The prompt says "names in the IAST characterset, separating each character with a comma".
+    # Usually IAST 'kh' is two characters 'k' and 'h'. 
+    # "separating each character" likely means just standard character separation.
+    # e.g. "S,h,i,v,a"
+    
+    return ",".join(list(iast_text))

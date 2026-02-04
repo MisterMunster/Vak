@@ -77,8 +77,8 @@ Contains the core business logic in the `BatchProcessor` class.
 *   **`process_folder()`**: The main loop that iterates through files in the input folder.
 *   **`download_file()`**: Downloads files to a local temporary path.
 *   **`convert_to_wav()`**: Converts MP3/M4A files to WAV format using `pydub`.
-*   **`transcribe_and_phonetic()`**: Performs Speech-to-Text and IPA conversion.
-*   **`update_sheet()`**: Appends the results to the Google Sheet.
+*   **`transcribe_and_phonetic()`**: Performs Speech-to-Text, IPA conversion, Sanskrit transliteration, and IAST conversion.
+*   **`update_sheet()`**: Appends the results (including Sanskrit and IAST) to the Google Sheet.
 *   **`move_file()`**: Moves the processed file to the "Done" folder using the Drive API.
 
 ## Logic Flow

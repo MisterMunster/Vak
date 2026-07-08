@@ -18,8 +18,6 @@ jobs:
             artifact: Vak-Windows
           - os: macos-latest
             artifact: Vak-macOS-AppleSilicon
-          - os: macos-13
-            artifact: Vak-macOS-Intel
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

@@ -1,212 +1,152 @@
+"""Google Drive / Sheets batch processing.
+
+Downloads audio files from a Drive folder, runs each through the local
+pipeline (pipeline.process_file), logs results to a Google Sheet and moves
+processed files to a "Done" folder.
+"""
+import io
 import os
+import re
+import tempfile
 import time
-import speech_recognition as sr
-import eng_to_ipa as ipa
-import ipa_map
+
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-import io
-import shutil
-from pydub import AudioSegment
 
-class BatchProcessor:
+import pipeline
+
+
+class DriveBatchProcessor:
+    SCOPES = [
+        'https://www.googleapis.com/auth/drive',
+        'https://www.googleapis.com/auth/spreadsheets',
+    ]
+
     def __init__(self, service_account_path):
         self.service_account_path = service_account_path
-        self.scopes = [
-            'https://www.googleapis.com/auth/drive',
-            'https://www.googleapis.com/auth/spreadsheets'
-        ]
-        self.creds = None
         self.drive_service = None
         self.sheets_client = None
 
     def authenticate(self):
-        """Authenticates with Google Services."""
         try:
-            self.creds = Credentials.from_service_account_file(
-                self.service_account_path, scopes=self.scopes)
-            self.drive_service = build('drive', 'v3', credentials=self.creds)
-            self.sheets_client = gspread.authorize(self.creds)
+            creds = Credentials.from_service_account_file(
+                self.service_account_path, scopes=self.SCOPES)
+            self.drive_service = build('drive', 'v3', credentials=creds)
+            self.sheets_client = gspread.authorize(creds)
             return True, "Authentication successful."
         except Exception as e:
-            return False, f"Authentication failed: {str(e)}"
+            return False, f"Authentication failed: {e}"
 
-    def download_file(self, file_id, file_name):
-        """Downloads a file from Google Drive."""
+    def download_file(self, file_id, file_name, dest_dir):
+        """Downloads a Drive file into dest_dir with a sanitized name."""
         request = self.drive_service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
         done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        
-        # Save to local temp file
-        local_path = file_name
+        while not done:
+            _, done = downloader.next_chunk()
+
+        safe_name = re.sub(r'[\\/:*?"<>|]', '_', file_name)
+        local_path = os.path.join(dest_dir, safe_name)
         with open(local_path, "wb") as f:
             f.write(fh.getbuffer())
         return local_path
 
-    def convert_to_wav(self, file_path):
-        """Converts audio file to WAV format for transcription."""
-        if file_path.lower().endswith('.wav'):
-             return file_path, False
-        
-        # New temp path
-        wav_path = file_path + ".converted.wav"
-        try:
-            # pydub requires ffmpeg to be installed and in path for mp3/m4a
-            audio = AudioSegment.from_file(file_path)
-            audio.export(wav_path, format="wav")
-            return wav_path, True
-        except Exception as e:
-            print(f"Conversion Error: {e}")
-            return None, False
-
-    def transcribe_and_phonetic(self, file_path):
-        """Transcribes audio and generates phonetic spelling."""
-        r = sr.Recognizer()
-        
-        wav_path, is_converted = self.convert_to_wav(file_path)
-        
-        if not wav_path:
-            return "[Conversion Failed - Install FFMPEG?]", "[Error]", "[Error]", "[Error]", "[Error]"
-
-        try:
-            with sr.AudioFile(wav_path) as source:
-                audio_data = r.record(source)
-                text = r.recognize_google(audio_data)
-                phonetic = ipa.convert(text)
-        except sr.UnknownValueError:
-            text = "[Unintelligible]"
-            phonetic = "[N/A]"
-            sanskrit = "[N/A]"
-            iast = "[N/A]"
-            iast_sep = "[N/A]"
-        except Exception as e:
-            text = f"[Error: {str(e)}]"
-            phonetic = "[Error]"
-            sanskrit = "[Error]"
-            iast = "[Error]"
-            iast_sep = "[Error]"
-        finally:
-            if is_converted and os.path.exists(wav_path):
-                try:
-                    os.remove(wav_path)
-                except:
-                    pass
-        
-        # Generate Sanskrit and IAST
-        # Only proceed if not already errored out (though logic above handles 'N/A' strings safely)
-        if hasattr(ipa_map, 'ipa_to_sanskrit'): # Basic check
-             try:
-                # If Error placeholders are present, simple helper will return them as is presumably 
-                # or logic below handles strings finely.
-                if text.startswith("["): # Simple check for error state
-                     pass 
-                else:
-                    sanskrit = ipa_map.ipa_to_sanskrit(phonetic)
-                    iast = ipa_map.sanskrit_to_iast(sanskrit)
-                    iast_sep = ipa_map.get_iast_separated(iast)
-             except Exception as e:
-                sanskrit = "[Error]"
-                iast = "[Error]"
-                iast_sep = "[Error]"
-        
-        # Consistency check: ensure iast_sep is set even if error branch taken
-        if 'iast_sep' not in locals():
-             iast_sep = "[Error]"
-
-        return text, phonetic, sanskrit, iast, iast_sep
-
     def update_sheet(self, sheet_id, data_row):
-        """Appends a row to the Google Sheet."""
         try:
             sheet = self.sheets_client.open_by_key(sheet_id).sheet1
             sheet.append_row(data_row)
-            return True
+            return True, None
         except Exception as e:
-            print(f"Sheet Error: {e}")
-            return False
+            return False, str(e)
 
     def move_file(self, file_id, destination_folder_id):
-        """Moves a file to a new folder in Google Drive."""
         try:
-            # Retrieve the existing parents to remove
-            file = self.drive_service.files().get(fileId=file_id,
-                                                  fields='parents').execute()
-            previous_parents = ",".join(file.get('parents'))
-            
-            # Move the file by adding the new parent and removing the old ones
-            self.drive_service.files().update(fileId=file_id,
-                                              addParents=destination_folder_id,
-                                              removeParents=previous_parents,
-                                              fields='id, parents').execute()
-            return True
+            file = self.drive_service.files().get(
+                fileId=file_id, fields='parents').execute()
+            previous_parents = ",".join(file.get('parents', []))
+            self.drive_service.files().update(
+                fileId=file_id,
+                addParents=destination_folder_id,
+                removeParents=previous_parents,
+                fields='id, parents').execute()
+            return True, None
         except Exception as e:
-            print(f"Move Error: {e}")
-            return False
+            return False, str(e)
+
+    def list_audio_files(self, input_folder_id):
+        query = f"'{input_folder_id}' in parents and trashed = false"
+        files = []
+        page_token = None
+        while True:
+            results = self.drive_service.files().list(
+                q=query, pageToken=page_token,
+                fields="nextPageToken, files(id, name, mimeType)").execute()
+            files.extend(results.get('files', []))
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+        return [f for f in files if pipeline.is_supported(f['name'])]
 
     def process_folder(self, input_folder_id, done_folder_id, sheet_id, log_callback):
-        """Main processing loop."""
         log_callback(f"Starting batch process for folder ID: {input_folder_id}")
-        
+
         try:
-            # List files in input folder
-            # We sort of blindly accept anything that looks like audio or video, then filter by extension
-            query = f"'{input_folder_id}' in parents and trashed = false"
-            results = self.drive_service.files().list(
-                q=query, fields="nextPageToken, files(id, name, mimeType)").execute()
-            items = results.get('files', [])
-
-            if not items:
-                log_callback("No files found in input folder.")
-                return
-            
-            # Filter for extensions locally
-            valid_extensions = ('.wav', '.mp3', '.m4a')
-            audio_files = [f for f in items if f['name'].lower().endswith(valid_extensions)]
-
-            if not audio_files:
-                log_callback("No supported audio files (.wav, .mp3, .m4a) found.")
-                return
-
-            log_callback(f"Found {len(audio_files)} audio files to process.")
-
-            for item in audio_files:
-                file_id = item['id']
-                file_name = item['name']
-                log_callback(f"Processing: {file_name}...")
-
-                # 1. Download
-                local_path = self.download_file(file_id, file_name)
-                
-                # 2. Transcribe & Phonetic
-                name, phonetic, sanskrit, iast, iast_sep = self.transcribe_and_phonetic(local_path)
-                log_callback(f"  - Detected Name: {name}")
-                log_callback(f"  - Phonetic: {phonetic}")
-                log_callback(f"  - Sanskrit: {sanskrit}")
-                log_callback(f"  - IAST: {iast}")
-                
-                # 3. Update Sheet
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                # Columns: Filename, Timestamp, Text, Phonetic, Sanskrit, IAST, IAST_Separated
-                row = [file_name, timestamp, name, phonetic, sanskrit, iast, iast_sep]
-                self.update_sheet(sheet_id, row)
-                log_callback("  - Sheet updated.")
-
-                # 4. Move File
-                self.move_file(file_id, done_folder_id)
-                log_callback("  - File moved to Done folder.")
-
-                # Cleanup local file
-                try:
-                    os.remove(local_path)
-                except:
-                    pass
-            
-            log_callback("Batch processing complete.")
-
+            audio_files = self.list_audio_files(input_folder_id)
         except Exception as e:
-            log_callback(f"Critical Error: {str(e)}")
+            log_callback(f"Could not list input folder: {e}")
+            return
+
+        if not audio_files:
+            log_callback("No supported audio files found in input folder.")
+            return
+
+        log_callback(f"Found {len(audio_files)} audio files to process.")
+        temp_dir = tempfile.mkdtemp(prefix="vak_")
+
+        for item in audio_files:
+            file_id, file_name = item['id'], item['name']
+            log_callback(f"Processing: {file_name}...")
+
+            local_path = None
+            try:
+                local_path = self.download_file(file_id, file_name, temp_dir)
+                result = pipeline.process_file(local_path)
+            except Exception as e:
+                log_callback(f"  - Failed: {e}")
+                continue
+            finally:
+                if local_path and os.path.exists(local_path):
+                    try:
+                        os.remove(local_path)
+                    except OSError:
+                        pass
+
+            if result.ok:
+                log_callback(f"  - Text: {result.text}")
+                log_callback(f"  - Phonetic: {result.ipa}")
+                log_callback(f"  - Sanskrit: {result.sanskrit}")
+                log_callback(f"  - IAST: {result.iast}")
+            else:
+                log_callback(f"  - {result.error}")
+
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            # Columns: Filename, Timestamp, Text, Phonetic, Sanskrit, IAST, IAST_Separated
+            row = [file_name, timestamp] + result.as_row()
+            ok, err = self.update_sheet(sheet_id, row)
+            log_callback("  - Sheet updated." if ok else f"  - Sheet update failed: {err}")
+
+            ok, err = self.move_file(file_id, done_folder_id)
+            log_callback("  - File moved to Done folder." if ok else f"  - Move failed: {err}")
+
+        try:
+            os.rmdir(temp_dir)
+        except OSError:
+            pass
+        log_callback("Batch processing complete.")
+
+
+# Backwards-compatible alias for the pre-refactor class name.
+BatchProcessor = DriveBatchProcessor

@@ -10,3 +10,9 @@ Include/
 pyvenv.cfg
 
 history.json
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+selftest_out.txt

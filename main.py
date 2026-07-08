@@ -10,6 +10,7 @@ Two workflows:
 import csv
 import os
 import queue
+import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -468,7 +469,30 @@ class VakApp:
         self._update_count()
 
 
+def _selftest(out_path):
+    """Headless check that the text pipeline works in a packaged build.
+    Used by CI on the PyInstaller output; writes results to a file because
+    windowed executables have no console."""
+    import eng_to_ipa
+    import ipa_map
+    text = "bhakti yoga church judge"
+    ipa = eng_to_ipa.convert(text)
+    sanskrit = ipa_map.ipa_to_sanskrit(ipa.translate(pipeline._IPA_NOISE))
+    iast = ipa_map.sanskrit_to_iast(sanskrit)
+    separated = ipa_map.get_iast_separated(iast)
+    lines = [f"text: {text}", f"ipa: {ipa}", f"sanskrit: {sanskrit}",
+             f"iast: {iast}", f"separated: {separated}",
+             f"dnd: {DND_AVAILABLE}"]
+    if all([ipa, sanskrit, iast, separated]) and "*" not in iast:
+        lines.append("SELFTEST OK")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "--selftest":
+        _selftest(sys.argv[2] if len(sys.argv) > 2 else "selftest_out.txt")
+        return
     root = TkinterDnD.Tk() if DND_AVAILABLE else tk.Tk()
     VakApp(root)
     root.mainloop()

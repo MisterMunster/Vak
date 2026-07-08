@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: Vak-Windows
+          - os: macos-latest
+            artifact: Vak-macOS-AppleSilicon
+          - os: macos-13
+            artifact: Vak-macOS-Intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --noconfirm --windowed --onefile --name Vak
+          --collect-all tkinterdnd2
+          --collect-all eng_to_ipa
+          --collect-all speech_recognition
+          --collect-all googleapiclient
+          main.py
+
+      - name: Smoke test build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & dist/Vak.exe --selftest selftest_out.txt | Out-Null
+          Get-Content selftest_out.txt
+          if (-not (Select-String -Path selftest_out.txt -Pattern 'SELFTEST OK' -Quiet)) { exit 1 }
+
+      - name: Smoke test build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          ./dist/Vak.app/Contents/MacOS/Vak --selftest selftest_out.txt
+          cat selftest_out.txt
+          grep -q 'SELFTEST OK' selftest_out.txt
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/Vak.exe -DestinationPath ${{ matrix.artifact }}.zip
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/Vak.app ${{ matrix.artifact }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip

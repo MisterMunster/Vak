@@ -1,0 +1,453 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index f15f77b..4d5f8a8 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -39,6 +39,9 @@ jobs:
+           --collect-all imageio_ffmpeg
+           --collect-all rapidfuzz
+           --collect-all jellyfish
++          --collect-all faster_whisper
++          --collect-all ctranslate2
++          --collect-all av
+           main.py
+ 
+       - name: Smoke test build (Windows)
+diff --git a/README.md b/README.md
+index eb17aa9..e446d87 100644
+--- a/README.md
++++ b/README.md
+@@ -64,7 +64,9 @@ Each processed file appends a row to the sheet: `Filename, Timestamp, Text, Phon
+ ## Logic Flow
+ 
+ 1. **Audio → WAV**: Files not natively readable are converted with `pydub`/FFmpeg to a temporary WAV (deleted afterwards).
+-2. **Transcribe**: The Google Web Speech API (via `speech_recognition`) turns speech into text.
++2. **Transcribe**: Two selectable engines (radio buttons above the Convert button; your choice is remembered):
++  - **Google Web Speech** (default) - online, light, fast. No vocabulary hints possible.
++  - **Whisper (offline)** - OpenAI Whisper running locally via `faster-whisper`. Much more accurate on names, and the filename stem is fed to the model as a vocabulary hint *before* transcription. First use downloads the model once (~75 MB tiny / ~145 MB base / ~465 MB small, cached in `~/.cache/huggingface`); after that it works with no internet. Model size is selectable next to the engine choice - `small` is the recommended default.
+ 3. **Filename correction**: The Web Speech API accepts no vocabulary hints, so unfamiliar proper nouns get replaced with soundalike common words ("Kristen Ann Beifus" → "Kristen Anne by Fitz"). Since files are typically named after the word being spoken, the transcript is compared to the filename stem both as text and as Metaphone phonetic encodings (`rapidfuzz` + `jellyfish`); if they score ≥ 70/100, the filename wins. Corrected rows show **OK (name-corrected)** in the status column, and the detail view shows what the API originally heard. Files with unrelated names ("New Recording 12.m4a") score low and are left untouched.
+ 4. **IPA**: `eng_to_ipa` converts the text to IPA. Stress marks (`ˈ ˌ`) and out-of-dictionary markers (`*`) are shown in the IPA column but stripped before the next step so they don't pollute the output.
+ 5. **Sanskrit**: The IPA string is mapped phoneme-by-phoneme (longest match first) to Devanagari, merging vowels into matras after consonants.
+diff --git a/build_mac_app.sh b/build_mac_app.sh
+index 8fc559d..3496677 100755
+--- a/build_mac_app.sh
++++ b/build_mac_app.sh
+@@ -26,6 +26,9 @@ pyinstaller --noconfirm --windowed --onefile --name Vak \
+   --collect-all imageio_ffmpeg \
+   --collect-all rapidfuzz \
+   --collect-all jellyfish \
++  --collect-all faster_whisper \
++  --collect-all ctranslate2 \
++  --collect-all av \
+   main.py
+ 
+ echo "==> Smoke test..."
+diff --git a/main.py b/main.py
+index ca5d30f..24e83d3 100644
+--- a/main.py
++++ b/main.py
+@@ -16,6 +16,7 @@ import tkinter as tk
+ from tkinter import filedialog, messagebox, scrolledtext, ttk
+ 
+ import pipeline
++import stt_engines
+ from config_manager import ConfigManager
+ from processor import DriveBatchProcessor
+ 
+@@ -109,6 +110,48 @@ class VakApp:
+         ttk.Button(btn_frame, text="Remove Selected", command=self.remove_selected).pack(fill="x", pady=2)
+         ttk.Button(btn_frame, text="Clear List", command=self.clear_queue).pack(fill="x", pady=2)
+ 
++        # Speech engine selector
++        engine_frame = ttk.LabelFrame(tab, text="Speech recognition engine")
++        engine_frame.pack(fill="x", padx=12, pady=(0, 2))
++
++        saved_engine = self.config_manager.get_value(
++            "stt_engine", stt_engines.DEFAULT_ENGINE)
++        if saved_engine == stt_engines.WHISPER and not stt_engines.whisper_available():
++            saved_engine = stt_engines.GOOGLE
++        self.engine_var = tk.StringVar(value=saved_engine)
++
++        ttk.Radiobutton(
++            engine_frame, text=stt_engines.engine_label(stt_engines.GOOGLE),
++            variable=self.engine_var, value=stt_engines.GOOGLE,
++            command=self._on_engine_change,
++        ).pack(side="left", padx=(8, 16), pady=4)
++
++        whisper_btn = ttk.Radiobutton(
++            engine_frame, text=stt_engines.engine_label(stt_engines.WHISPER),
++            variable=self.engine_var, value=stt_engines.WHISPER,
++            command=self._on_engine_change,
++        )
++        whisper_btn.pack(side="left", padx=(0, 8), pady=4)
++
++        self.whisper_model_var = tk.StringVar(
++            value=self.config_manager.get_value(
++                "whisper_model", stt_engines.DEFAULT_WHISPER_MODEL))
++        self.whisper_model_box = ttk.Combobox(
++            engine_frame, textvariable=self.whisper_model_var,
++            values=list(stt_engines.WHISPER_MODELS),
++            state="readonly", width=8)
++        self.whisper_model_box.pack(side="left", pady=4)
++        self.whisper_model_box.bind(
++            "<<ComboboxSelected>>", lambda e: self._on_engine_change())
++
++        if not stt_engines.whisper_available():
++            whisper_btn.config(state="disabled")
++            self.whisper_model_box.config(state="disabled")
++            ttk.Label(engine_frame, foreground="#888",
++                      text="(pip install faster-whisper to enable)"
++                      ).pack(side="left", padx=8)
++        self._on_engine_change(save=False)
++
+         # Process button + progress
+         self.btn_convert = tk.Button(
+             tab, text="Convert Files", command=self.start_local_processing,
+@@ -228,6 +271,16 @@ class VakApp:
+         self.count_label.config(text=f"{len(self.queued_files)} / {MAX_BATCH} files")
+ 
+     # ---- processing ---- #
++    def _on_engine_change(self, save=True):
++        is_whisper = self.engine_var.get() == stt_engines.WHISPER
++        if stt_engines.whisper_available():
++            self.whisper_model_box.config(
++                state="readonly" if is_whisper else "disabled")
++        if save:
++            self.config_manager.set_value("stt_engine", self.engine_var.get())
++            self.config_manager.set_value(
++                "whisper_model", self.whisper_model_var.get())
++
+     def start_local_processing(self):
+         if self.processing:
+             return
+@@ -238,14 +291,23 @@ class VakApp:
+ 
+         self._set_processing(True)
+         files = list(self.queued_files)
++        engine = self.engine_var.get()
++        whisper_model = self.whisper_model_var.get()
+         self.progress.config(maximum=len(files), value=0)
+-        threading.Thread(target=self._local_worker, args=(files,), daemon=True).start()
+-
+-    def _local_worker(self, files):
++        threading.Thread(target=self._local_worker,
++                         args=(files, engine, whisper_model),
++                         daemon=True).start()
++
++    def _local_worker(self, files, engine, whisper_model):
++        if (engine == stt_engines.WHISPER
++                and not stt_engines.whisper_model_loaded()):
++            self.ui_queue.put(
++                ("status", stt_engines.whisper_download_note(whisper_model)))
+         for i, path in enumerate(files, start=1):
+             self.ui_queue.put(("status", f"Processing {i} of {len(files)}: "
+                                          f"{os.path.basename(path)}"))
+-            result = pipeline.process_file(path)
++            result = pipeline.process_file(
++                path, engine=engine, whisper_model=whisper_model)
+             self.ui_queue.put(("result", result, i))
+         self.ui_queue.put(("local_done", len(files)))
+ 
+@@ -429,7 +491,10 @@ class VakApp:
+         success, msg = processor.authenticate()
+         log(msg)
+         if success:
+-            processor.process_folder(input_id, done_id, sheet_id, log)
++            processor.process_folder(
++                input_id, done_id, sheet_id, log,
++                engine=self.engine_var.get(),
++                whisper_model=self.whisper_model_var.get())
+         self.ui_queue.put(("drive_done",))
+ 
+     def drive_log(self, message):
+@@ -500,7 +565,18 @@ def _selftest(out_path):
+     except Exception as e:
+         lines.append(f"name_correction error: {e}")
+     lines.append(f"name_correction: {correction_ok}")
+-    if all([ipa, sanskrit, iast, separated]) and "*" not in iast and correction_ok:
++    # Whisper: verify the packaged build can import the engine. Model
++    # weights download on first use, so we don't load one here (CI would
++    # pull hundreds of MB) - import presence is the packaging concern.
++    try:
++        import stt_engines
++        lines.append(f"whisper_available: {stt_engines.whisper_available()}")
++        whisper_ok = stt_engines.whisper_available()
++    except Exception as e:
++        lines.append(f"stt_engines error: {e}")
++        whisper_ok = False
++    if (all([ipa, sanskrit, iast, separated]) and "*" not in iast
++            and correction_ok and whisper_ok):
+         lines.append("SELFTEST OK")
+     with open(out_path, "w", encoding="utf-8") as f:
+         f.write("\n".join(lines) + "\n")
+diff --git a/pipeline.py b/pipeline.py
+index a669037..8ccfa1c 100644
+--- a/pipeline.py
++++ b/pipeline.py
+@@ -10,9 +10,9 @@ import tempfile
+ from dataclasses import dataclass
+ 
+ import eng_to_ipa
+-import speech_recognition as sr
+ 
+ import ipa_map
++import stt_engines
+ 
+ # Filename-based transcript correction (see name_correction.py). Optional:
+ # if rapidfuzz/jellyfish aren't installed the pipeline still runs, it just
+@@ -157,8 +157,12 @@ def _to_wav(path):
+     return wav_path, wav_path
+ 
+ 
+-def process_file(path):
+-    """Transcribes one audio file and derives IPA, Sanskrit and IAST."""
++def process_file(path, engine=stt_engines.DEFAULT_ENGINE,
++                 whisper_model=stt_engines.DEFAULT_WHISPER_MODEL):
++    """Transcribes one audio file and derives IPA, Sanskrit and IAST.
++
++    engine: stt_engines.GOOGLE (online) or stt_engines.WHISPER (offline).
++    """
+     result = PipelineResult(file_name=os.path.basename(path))
+ 
+     if not os.path.exists(path):
+@@ -171,30 +175,28 @@ def process_file(path):
+         result.error = "FFmpeg is required to convert this format - install it or use WAV/FLAC"
+         return result
+ 
++    # The filename stem doubles as a vocabulary hint for engines that
++    # support one (Whisper), and as the post-hoc correction reference.
++    hint = name_correction.clean_stem(path) if name_correction else None
++
+     temp_wav = None
+     try:
+         wav_path, temp_wav = _to_wav(path)
++        result.text = stt_engines.transcribe(
++            wav_path, engine=engine, hint=hint, whisper_model=whisper_model)
+ 
+-        recognizer = sr.Recognizer()
+-        with sr.AudioFile(wav_path) as source:
+-            audio_data = recognizer.record(source)
+-        result.text = recognizer.recognize_google(audio_data)
+-
+-        # The free Web Speech API can't be given vocabulary hints, so names
+-        # it doesn't know become soundalike common words. The filename is
+-        # usually the ground truth in this workflow - if it's phonetically
+-        # close to what was heard, trust it instead.
++        # Post-hoc safety net (applies to both engines): if the transcript
++        # is phonetically close to the filename, the filename wins. With
++        # Whisper's prompt biasing this rarely needs to fire, but it still
++        # catches residual misspellings of unusual names.
+         if name_correction is not None:
+             corrected, was, _score = name_correction.correct_transcript(
+                 result.text, path)
+             if was is not None:
+                 result.text = corrected
+                 result.corrected_from = was
+-    except sr.UnknownValueError:
+-        result.error = "No intelligible speech detected"
+-        return result
+-    except sr.RequestError as e:
+-        result.error = f"Speech service unavailable (check internet): {e}"
++    except stt_engines.TranscriptionError as e:
++        result.error = str(e)
+         return result
+     except Exception as e:
+         result.error = f"Could not read audio: {e}"
+diff --git a/processor.py b/processor.py
+index f8d8626..69ec88f 100644
+--- a/processor.py
++++ b/processor.py
+@@ -90,7 +90,11 @@ class DriveBatchProcessor:
+                 break
+         return [f for f in files if pipeline.is_supported(f['name'])]
+ 
+-    def process_folder(self, input_folder_id, done_folder_id, sheet_id, log_callback):
++    def process_folder(self, input_folder_id, done_folder_id, sheet_id, log_callback,
++                       engine=None, whisper_model=None):
++        import stt_engines
++        engine = engine or stt_engines.DEFAULT_ENGINE
++        whisper_model = whisper_model or stt_engines.DEFAULT_WHISPER_MODEL
+         log_callback(f"Starting batch process for folder ID: {input_folder_id}")
+ 
+         try:
+@@ -113,7 +117,8 @@ class DriveBatchProcessor:
+             local_path = None
+             try:
+                 local_path = self.download_file(file_id, file_name, temp_dir)
+-                result = pipeline.process_file(local_path)
++                result = pipeline.process_file(
++                    local_path, engine=engine, whisper_model=whisper_model)
+             except Exception as e:
+                 log_callback(f"  - Failed: {e}")
+                 continue
+diff --git a/requirements.txt b/requirements.txt
+index 6e76f0d..6d3fd5e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -9,7 +9,8 @@ eng_to_ipa
+ requests
+ rapidfuzz
+ jellyfish
++faster-whisper
+ tkinterdnd2
+ # Python 3.13 removed the stdlib modules these libraries rely on
+ audioop-lts; python_version >= "3.13"
+-standard-aifc; python_version >= "3.13"
++standard-aifc; python_version >= "3.13"
+\ No newline at end of file
+diff --git a/stt_engines.py b/stt_engines.py
+new file mode 100644
+index 0000000..fee4f29
+--- /dev/null
++++ b/stt_engines.py
+@@ -0,0 +1,151 @@
++"""Pluggable speech-to-text backends.
++
++Two engines:
++
++  * "google"  - the free Google Web Speech API (online). Light and fast but
++                accepts no vocabulary hints, so unfamiliar proper nouns get
++                snapped to soundalike common words.
++  * "whisper" - OpenAI Whisper running locally via faster-whisper (offline
++                after a one-time model download). Much stronger on names,
++                and it accepts an initial_prompt, which we seed with the
++                filename stem so the expected word/name biases recognition
++                *before* transcription instead of being patched afterwards.
++
++Both raise TranscriptionError subclasses so pipeline.process_file() can
++report failures uniformly.
++"""
++import os
++import re
++
++import speech_recognition as sr
++
++GOOGLE = "google"
++WHISPER = "whisper"
++DEFAULT_ENGINE = GOOGLE
++
++# Whisper model sizes exposed in the GUI. "small" is the sweet spot for
++# short name/word clips on CPU; "tiny"/"base" are faster and lighter.
++WHISPER_MODELS = ("tiny", "base", "small", "medium")
++DEFAULT_WHISPER_MODEL = "small"
++
++# Rough one-time download sizes, shown to the user before first load.
++_MODEL_SIZES_MB = {"tiny": 75, "base": 145, "small": 465, "medium": 1500}
++
++
++class TranscriptionError(Exception):
++    """Base: the engine ran but produced no usable text."""
++
++
++class NoSpeechError(TranscriptionError):
++    """No intelligible speech was detected in the audio."""
++
++
++class EngineUnavailableError(TranscriptionError):
++    """The engine cannot run (missing dependency / no internet)."""
++
++
++# --------------------------------------------------------------------- #
++# Google Web Speech (online)
++# --------------------------------------------------------------------- #
++def _transcribe_google(wav_path, hint=None):
++    # The free endpoint has no hint mechanism; `hint` is accepted for
++    # interface symmetry and ignored.
++    recognizer = sr.Recognizer()
++    with sr.AudioFile(wav_path) as source:
++        audio_data = recognizer.record(source)
++    try:
++        return recognizer.recognize_google(audio_data)
++    except sr.UnknownValueError:
++        raise NoSpeechError("No intelligible speech detected")
++    except sr.RequestError as e:
++        raise EngineUnavailableError(
++            f"Speech service unavailable (check internet): {e}")
++
++
++# --------------------------------------------------------------------- #
++# Whisper via faster-whisper (offline)
++# --------------------------------------------------------------------- #
++_whisper_model = None
++_whisper_model_name = None
++
++
++def whisper_available():
++    try:
++        import faster_whisper  # noqa: F401
++        return True
++    except ImportError:
++        return False
++
++
++def whisper_model_loaded():
++    return _whisper_model is not None
++
++
++def whisper_download_note(model_name=DEFAULT_WHISPER_MODEL):
++    mb = _MODEL_SIZES_MB.get(model_name, 500)
++    return (f"Loading Whisper '{model_name}' model "
++            f"(first use downloads ~{mb} MB, then it's cached locally)...")
++
++
++def _get_whisper(model_name):
++    """Lazy singleton. Reloads only if the user switched model sizes."""
++    global _whisper_model, _whisper_model_name
++    if _whisper_model is None or _whisper_model_name != model_name:
++        from faster_whisper import WhisperModel
++        _whisper_model = WhisperModel(
++            model_name, device="cpu", compute_type="int8")
++        _whisper_model_name = model_name
++    return _whisper_model
++
++
++def _transcribe_whisper(wav_path, hint=None, model_name=DEFAULT_WHISPER_MODEL):
++    if not whisper_available():
++        raise EngineUnavailableError(
++            "Whisper engine not installed - run: pip install faster-whisper")
++    model = _get_whisper(model_name)
++
++    # The filename stem is our best guess at what the clip contains. Feeding
++    # it as initial_prompt biases the decoder toward that vocabulary, which
++    # is exactly what the Google endpoint can't do. Whisper still transcribes
++    # what it actually hears - the prompt is a nudge, not a mandate - and the
++    # post-hoc filename correction in pipeline.py remains as a safety net.
++    prompt = f"A recording of the name or phrase: {hint}." if hint else None
++
++    segments, _info = model.transcribe(
++        wav_path,
++        language="en",
++        initial_prompt=prompt,
++        beam_size=5,
++        vad_filter=True,          # skip leading/trailing silence
++        condition_on_previous_text=False,
++    )
++    text = " ".join(s.text.strip() for s in segments).strip()
++
++    # Whisper punctuates ("Kristen Ann Beifus.") - strip sentence punctuation
++    # so it doesn't leak into the IPA/Sanskrit stages.
++    text = re.sub(r"[.,!?;:]+$", "", text).strip()
++    text = re.sub(r"\s+", " ", text)
++
++    if not text:
++        raise NoSpeechError("No intelligible speech detected")
++    return text
++
++
++# --------------------------------------------------------------------- #
++# Registry
++# --------------------------------------------------------------------- #
++def engine_label(engine):
++    return {GOOGLE: "Google Web Speech (online)",
++            WHISPER: "Whisper (offline, better with names)"}.get(engine, engine)
++
++
++def transcribe(wav_path, engine=DEFAULT_ENGINE, hint=None,
++               whisper_model=DEFAULT_WHISPER_MODEL):
++    """Transcribe a WAV file with the chosen engine.
++
++    hint: expected content (typically the cleaned filename stem), used to
++    bias engines that support it. Raises TranscriptionError on failure.
++    """
++    if engine == WHISPER:
++        return _transcribe_whisper(wav_path, hint=hint, model_name=whisper_model)
++    return _transcribe_google(wav_path, hint=hint)

@@ -4,6 +4,7 @@ google-auth-oauthlib
 gspread
 SpeechRecognition
 pydub
+imageio-ffmpeg
 eng_to_ipa
 requests
 tkinterdnd2

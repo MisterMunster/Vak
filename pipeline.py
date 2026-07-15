@@ -57,14 +57,68 @@ def _find_winget_ffmpeg():
     return os.path.dirname(matches[0]) if matches else None
 
 
+def _bundled_ffmpeg():
+    """Path to the ffmpeg binary shipped inside the imageio-ffmpeg pip
+    package, if that dependency is installed. This is what lets Vak convert
+    MP3/M4A/OGG/AAC/WMA with no separate FFmpeg install (and no internet
+    download at runtime) - the binary is bundled directly in the wheel and,
+    for compiled builds, in the .app via --collect-all imageio_ffmpeg."""
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return exe if exe and os.path.exists(exe) else None
+    except Exception:
+        return None
+
+
+# Cached path to whichever ffmpeg ffmpeg_available() decided to use, so
+# _to_wav() can point pydub at it without re-searching.
+_ffmpeg_path = None
+
+
 def ffmpeg_available():
+    global _ffmpeg_path
+    if _ffmpeg_path:
+        return True
     if shutil.which('ffmpeg') is not None:
         return True
     bin_dir = _find_winget_ffmpeg()
     if bin_dir:
         os.environ['PATH'] = bin_dir + os.pathsep + os.environ.get('PATH', '')
-        return shutil.which('ffmpeg') is not None
+        if shutil.which('ffmpeg') is not None:
+            return True
+    bundled = _bundled_ffmpeg()
+    if bundled:
+        _ffmpeg_path = bundled
+        return True
     return False
+
+
+_pydub_mediainfo_patched = False
+
+
+def _patch_pydub_mediainfo():
+    """pydub's AudioSegment.from_file() shells out to ffprobe (via
+    mediainfo_json) purely to refine the output bit depth. imageio-ffmpeg
+    bundles ffmpeg but not ffprobe, so on a machine with no system ffprobe
+    that call raises FileNotFoundError and aborts the whole conversion.
+    Make the probe best-effort: if it's missing, fall back to ffmpeg's
+    default 16-bit PCM WAV output, which is what speech_recognition
+    expects anyway."""
+    global _pydub_mediainfo_patched
+    if _pydub_mediainfo_patched:
+        return
+    import pydub.audio_segment as _seg
+    original = _seg.mediainfo_json
+
+    def safe_mediainfo_json(filepath, read_ahead_limit=-1):
+        try:
+            return original(filepath, read_ahead_limit=read_ahead_limit)
+        except Exception:
+            return None
+
+    _seg.mediainfo_json = safe_mediainfo_json
+    _pydub_mediainfo_patched = True
 
 
 def needs_ffmpeg(path):
@@ -82,6 +136,9 @@ def _to_wav(path):
         return path, None
 
     from pydub import AudioSegment  # deferred: pulls in ffmpeg machinery
+    _patch_pydub_mediainfo()
+    if _ffmpeg_path:
+        AudioSegment.converter = _ffmpeg_path
     fd, wav_path = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     audio = AudioSegment.from_file(path)

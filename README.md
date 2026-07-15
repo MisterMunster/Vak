@@ -34,11 +34,7 @@ An internet connection is required (transcription uses the Google Web Speech API
 | WAV, FLAC, AIFF | No |
 | MP3, M4A, OGG, AAC, WMA | Yes |
 
-**FFmpeg** is only needed for the second group:
-* **Windows**: [Download FFmpeg](https://ffmpeg.org/download.html), extract it, and add the `bin` folder to your system PATH.
-* **Mac/Linux**: `brew install ffmpeg` or your package manager.
-
-If FFmpeg is missing, the app warns you when you add a file that needs it - WAV and FLAC files still work fine without it.
+**FFmpeg** is bundled automatically via the `imageio-ffmpeg` dependency in `requirements.txt` - no separate install needed. `pip install -r requirements.txt` pulls in a self-contained ffmpeg binary for your platform, and the compiled `.app`/`.exe` builds include it too. If a system-installed `ffmpeg` is already on your PATH, that one is used instead.
 
 ## Google Drive Mode (Advanced)
 

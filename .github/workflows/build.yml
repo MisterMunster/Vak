@@ -36,6 +36,7 @@ jobs:
           --collect-all eng_to_ipa
           --collect-all speech_recognition
           --collect-all googleapiclient
+          --collect-all imageio_ffmpeg
           main.py
 
       - name: Smoke test build (Windows)

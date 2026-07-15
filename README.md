@@ -65,10 +65,11 @@ Each processed file appends a row to the sheet: `Filename, Timestamp, Text, Phon
 
 1. **Audio → WAV**: Files not natively readable are converted with `pydub`/FFmpeg to a temporary WAV (deleted afterwards).
 2. **Transcribe**: The Google Web Speech API (via `speech_recognition`) turns speech into text.
-3. **IPA**: `eng_to_ipa` converts the text to IPA. Stress marks (`ˈ ˌ`) and out-of-dictionary markers (`*`) are shown in the IPA column but stripped before the next step so they don't pollute the output.
-4. **Sanskrit**: The IPA string is mapped phoneme-by-phoneme (longest match first) to Devanagari, merging vowels into matras after consonants.
-5. **IAST**: The Devanagari is transliterated to IAST.
-6. **Separated IAST**: The IAST string is split into individual Sanskrit phonemes, comma-separated. Digraphs are kept whole: "bhakti" → `bh,a,k,t,i`; "Kailash" → `k,ai,l,ā,ś`.
+3. **Filename correction**: The Web Speech API accepts no vocabulary hints, so unfamiliar proper nouns get replaced with soundalike common words ("Kristen Ann Beifus" → "Kristen Anne by Fitz"). Since files are typically named after the word being spoken, the transcript is compared to the filename stem both as text and as Metaphone phonetic encodings (`rapidfuzz` + `jellyfish`); if they score ≥ 70/100, the filename wins. Corrected rows show **OK (name-corrected)** in the status column, and the detail view shows what the API originally heard. Files with unrelated names ("New Recording 12.m4a") score low and are left untouched.
+4. **IPA**: `eng_to_ipa` converts the text to IPA. Stress marks (`ˈ ˌ`) and out-of-dictionary markers (`*`) are shown in the IPA column but stripped before the next step so they don't pollute the output.
+5. **Sanskrit**: The IPA string is mapped phoneme-by-phoneme (longest match first) to Devanagari, merging vowels into matras after consonants.
+6. **IAST**: The Devanagari is transliterated to IAST.
+7. **Separated IAST**: The IAST string is split into individual Sanskrit phonemes, comma-separated. Digraphs are kept whole: "bhakti" → `bh,a,k,t,i`; "Kailash" → `k,ai,l,ā,ś`.
 
 ### Strict IAST Charset
 

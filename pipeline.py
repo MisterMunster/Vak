@@ -14,6 +14,14 @@ import speech_recognition as sr
 
 import ipa_map
 
+# Filename-based transcript correction (see name_correction.py). Optional:
+# if rapidfuzz/jellyfish aren't installed the pipeline still runs, it just
+# skips the correction step.
+try:
+    import name_correction
+except ImportError:
+    name_correction = None
+
 # Formats the speech_recognition library reads natively.
 NATIVE_FORMATS = {'.wav', '.aiff', '.aif', '.flac'}
 # Formats that must first be converted to WAV via pydub, which needs ffmpeg.
@@ -36,6 +44,9 @@ class PipelineResult:
     iast: str = ""
     iast_separated: str = ""
     error: str = ""
+    # When the transcript was replaced by the filename stem, this holds what
+    # the speech API originally heard (empty string = no correction applied).
+    corrected_from: str = ""
 
     def as_row(self):
         """Values in Google Sheet / CSV column order (without timestamp)."""
@@ -168,6 +179,17 @@ def process_file(path):
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
         result.text = recognizer.recognize_google(audio_data)
+
+        # The free Web Speech API can't be given vocabulary hints, so names
+        # it doesn't know become soundalike common words. The filename is
+        # usually the ground truth in this workflow - if it's phonetically
+        # close to what was heard, trust it instead.
+        if name_correction is not None:
+            corrected, was, _score = name_correction.correct_transcript(
+                result.text, path)
+            if was is not None:
+                result.text = corrected
+                result.corrected_from = was
     except sr.UnknownValueError:
         result.error = "No intelligible speech detected"
         return result

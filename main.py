@@ -259,7 +259,8 @@ class VakApp:
     def _add_result(self, result):
         self.results.append(result)
         if result.ok:
-            values = (result.file_name, "OK", result.text, result.ipa,
+            status = "OK (name-corrected)" if result.corrected_from else "OK"
+            values = (result.file_name, status, result.text, result.ipa,
                       result.sanskrit, result.iast, result.iast_separated)
             tags = ()
         else:
@@ -283,6 +284,8 @@ class VakApp:
 
         fields = [("File", result.file_name)]
         if result.ok:
+            if result.corrected_from:
+                fields += [("Speech API heard", result.corrected_from)]
             fields += [("Transcription", result.text), ("IPA", result.ipa),
                        ("Sanskrit", result.sanskrit), ("IAST", result.iast),
                        ("IAST (separated)", result.iast_separated)]
@@ -483,7 +486,21 @@ def _selftest(out_path):
     lines = [f"text: {text}", f"ipa: {ipa}", f"sanskrit: {sanskrit}",
              f"iast: {iast}", f"separated: {separated}",
              f"dnd: {DND_AVAILABLE}"]
-    if all([ipa, sanskrit, iast, separated]) and "*" not in iast:
+    # Verify the filename-correction module survived packaging and fires on
+    # the known failure case ("Kristen Anne by Fitz" heard for a file named
+    # "Kristen Ann Beifus"). pipeline degrades gracefully if the module is
+    # missing, so without this check a packaging miss would silently ship
+    # a build with the feature disabled.
+    correction_ok = False
+    try:
+        import name_correction
+        fixed, was, _ = name_correction.correct_transcript(
+            "Kristen Anne by Fitz", "Kristen Ann Beifus.wav")
+        correction_ok = (fixed == "Kristen Ann Beifus" and was is not None)
+    except Exception as e:
+        lines.append(f"name_correction error: {e}")
+    lines.append(f"name_correction: {correction_ok}")
+    if all([ipa, sanskrit, iast, separated]) and "*" not in iast and correction_ok:
         lines.append("SELFTEST OK")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

@@ -24,6 +24,8 @@ pyinstaller --noconfirm --windowed --onefile --name Vak \
   --collect-all speech_recognition \
   --collect-all googleapiclient \
   --collect-all imageio_ffmpeg \
+  --collect-all rapidfuzz \
+  --collect-all jellyfish \
   main.py
 
 echo "==> Smoke test..."

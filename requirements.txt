@@ -7,6 +7,8 @@ pydub
 imageio-ffmpeg
 eng_to_ipa
 requests
+rapidfuzz
+jellyfish
 tkinterdnd2
 # Python 3.13 removed the stdlib modules these libraries rely on
 audioop-lts; python_version >= "3.13"
